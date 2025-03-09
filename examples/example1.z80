@@ -1,0 +1,4 @@
+LD HL, 0x123
+LD DE, 0x456
+LD BC, 4
+LDIR
