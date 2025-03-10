@@ -81,12 +81,14 @@ pub const Z80 = struct {
                     }
                 },
                 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E => self.ldu8(),
+                0x40...0x45, 0x47...0x4D, 0x4F...0x55, 0x57...0x5D, 0x5F...0x65, 0x67...0x6D, 0x6F => self.ldr(),
                 else => return error.UnknownOpcode,
             }
 
             switch (self.page0[self.pc]) {
                 0x01, 0x11, 0x21, 0x31 => self.pc += 3,
                 0xED, 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E => self.pc += 2,
+                0x40...0x45, 0x47...0x4D, 0x4F...0x55, 0x57...0x5D, 0x5F...0x65, 0x67...0x6D, 0x6F => self.pc += 1,
                 else => return error.UnknownOpcode,
             }
         }
@@ -97,10 +99,21 @@ pub const Z80 = struct {
     }
 
     fn ldu8(self: *Z80) void {
-        const rs = self.main_register_set;
-        const arr: [8]*u8 = .{ rs.b, rs.c, rs.d, rs.e, rs.h, rs.l, undefined, rs.a };
-        const r = arr[self.page0[self.pc] >> 3];
+        const mrs = self.main_register_set;
+        const pr: [8]*u8 = .{ mrs.b, mrs.c, mrs.d, mrs.e, mrs.h, mrs.l, undefined, mrs.a };
+        const r = pr[self.page0[self.pc] >> 3];
         r.* = self.page0[self.pc + 1];
+    }
+
+    fn ldr(self: *Z80) void {
+        const op = self.page0[self.pc];
+
+        const mrs = self.main_register_set;
+        const prf: [8]*u8 = .{ mrs.b, mrs.c, mrs.d, mrs.e, mrs.f, mrs.l, undefined, mrs.a };
+        const rf = prf[op & 0b111];
+        const prt: [8]*u8 = .{ mrs.b, mrs.c, mrs.d, mrs.e, mrs.h, mrs.l, undefined, mrs.a };
+        const rt = prt[(op >> 3) & 0b111];
+        rt.* = rf.*;
     }
 
     fn ldir(self: *Z80) void {
@@ -173,6 +186,22 @@ test "Test LD r,n" {
     try std.testing.expectEqual(0x5, z.main_register_set.e.*);
     try std.testing.expectEqual(0x6, z.main_register_set.h.*);
     try std.testing.expectEqual(0x7, z.main_register_set.l.*);
+}
+
+test "Test LD r,r" {
+    var z = try Z80.init(std.heap.page_allocator);
+    const pgm1 = [_]u8{ 0x47, 0x48, 0x51, 0x5A, 0x63, 0x6B, 0x76 };
+    try z.load(0x1000, &pgm1);
+
+    z.main_register_set.a.* = 0x89;
+    try z.call(0x1000);
+
+    try std.testing.expectEqual(0x89, z.main_register_set.b.*);
+    try std.testing.expectEqual(0x89, z.main_register_set.c.*);
+    try std.testing.expectEqual(0x89, z.main_register_set.d.*);
+    try std.testing.expectEqual(0x89, z.main_register_set.e.*);
+    try std.testing.expectEqual(0x89, z.main_register_set.h.*);
+    try std.testing.expectEqual(0x89, z.main_register_set.l.*);
 }
 
 test "Test LDIR" {
