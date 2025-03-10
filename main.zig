@@ -1,11 +1,18 @@
 const std = @import("std");
 const print = std.debug.print;
 
-const Registers = struct { hl: u16 = 0, h: *u8 = undefined, l: *u8 = undefined, de: u16 = 0, d: *u8 = undefined, e: *u8 = undefined, bc: u16 = 0, b: *u8 = undefined, c: *u8 = undefined };
+const Registers = struct { hl: u16 = 0, h: *u8 = undefined, l: *u8 = undefined, de: u16 = 0, d: *u8 = undefined, e: *u8 = undefined, bc: u16 = 0, b: *u8 = undefined, c: *u8 = undefined, af: u16 = 0, a: *u8 = undefined, f: *u8 = undefined };
 
 const Z80Error = error{ Overflow, UnknownOpcode, Unsupported };
 
 pub const Z80 = struct {
+    const c_mask: u8 = 0b00000001;
+    const n_mask: u8 = 0b00000010;
+    const pv_msk: u8 = 0b00000100;
+    const h_mask: u8 = 0b00010000;
+    const z_mask: u8 = 0b01000000;
+    const s_mask: u8 = 0b10000000;
+
     page0: []u8,
     main_register_set: *Registers,
     alt_register_set: *Registers,
@@ -36,6 +43,11 @@ pub const Z80 = struct {
         mrs.b = @ptrCast(bc + 1);
         mrs.bc = 0;
 
+        const af: [*]u8 = @ptrCast(&mrs.af);
+        mrs.f = @ptrCast(af);
+        mrs.a = @ptrCast(af + 1);
+        mrs.af = 0;
+
         return mrs;
     }
 
@@ -62,11 +74,18 @@ pub const Z80 = struct {
                 0x11 => self.ld(&self.main_register_set.de),
                 0x21 => self.ld(&self.main_register_set.hl),
                 0x31 => self.ld(&self.sp),
+                0xED => {
+                    switch (self.page0[self.pc + 1]) {
+                        0xB0 => self.ldir(),
+                        else => return error.UnknownOpcode,
+                    }
+                },
                 else => return error.UnknownOpcode,
             }
 
             switch (self.page0[self.pc]) {
                 0x01, 0x11, 0x21, 0x31 => self.pc += 3,
+                0xED => self.pc += 2,
                 else => return error.UnknownOpcode,
             }
         }
@@ -74,6 +93,23 @@ pub const Z80 = struct {
 
     fn ld(self: *Z80, r: *u16) void {
         r.* = word(self.page0[self.pc + 2], self.page0[self.pc + 1]);
+    }
+
+    fn ldir(self: *Z80) void {
+        var r = self.main_register_set;
+
+        while (true) {
+            self.page0[r.de] = self.page0[r.hl];
+            r.de += 1;
+            r.hl += 1;
+            r.bc -= 1;
+            if (r.bc == 0) break;
+        }
+        self.resetH();
+    }
+
+    fn resetH(self: *Z80) void {
+        self.main_register_set.h.* &= ~h_mask;
     }
 
     pub fn printRegisters(self: *Z80) void {
@@ -114,4 +150,15 @@ test "Test LD rr,nn" {
     try std.testing.expectEqual(0x123, z.main_register_set.hl);
     try std.testing.expectEqual(0x456, z.main_register_set.de);
     try std.testing.expectEqual(4, z.main_register_set.bc);
+}
+
+test "Test LDIR" {
+    var z = try Z80.init(std.heap.page_allocator);
+    const pgm1 = [_]u8{ 0x21, 0x34, 0x12, 0x11, 0x67, 0x45, 0x01, 0x04, 0x00, 0xED, 0xB0, 0x76 };
+    try z.load(0x1234, "ABCD");
+    try z.load(0x1000, &pgm1);
+
+    try z.call(0x1000);
+
+    try std.testing.expectEqualStrings("ABCD", z.page0[0x4567..0x456B]);
 }
