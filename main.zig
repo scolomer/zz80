@@ -82,13 +82,14 @@ pub const Z80 = struct {
                 },
                 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E => self.ldu8(),
                 0x40...0x45, 0x47...0x4D, 0x4F...0x55, 0x57...0x5D, 0x5F...0x65, 0x67...0x6D, 0x6F => self.ldr(),
+                0x46, 0x4E, 0x56, 0x5E, 0x66, 0x6E, 0x7E => self.ldrihl(),
                 else => return error.UnknownOpcode,
             }
 
             switch (self.page0[self.pc]) {
                 0x01, 0x11, 0x21, 0x31 => self.pc += 3,
                 0xED, 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E => self.pc += 2,
-                0x40...0x45, 0x47...0x4D, 0x4F...0x55, 0x57...0x5D, 0x5F...0x65, 0x67...0x6D, 0x6F => self.pc += 1,
+                0x40...0x45, 0x47...0x4D, 0x4F...0x55, 0x57...0x5D, 0x5F...0x65, 0x67...0x6D, 0x6F, 0x46, 0x4E, 0x56, 0x5E, 0x66, 0x6E, 0x7E => self.pc += 1,
                 else => return error.UnknownOpcode,
             }
         }
@@ -114,6 +115,14 @@ pub const Z80 = struct {
         const prt: [8]*u8 = .{ mrs.b, mrs.c, mrs.d, mrs.e, mrs.h, mrs.l, undefined, mrs.a };
         const rt = prt[(op >> 3) & 0b111];
         rt.* = rf.*;
+    }
+
+    fn ldrihl(self: *Z80) void {
+        const op = self.page0[self.pc];
+        const mrs = self.main_register_set;
+        const prt: [8]*u8 = .{ mrs.b, mrs.c, mrs.d, mrs.e, mrs.h, mrs.l, undefined, mrs.a };
+        const rt = prt[(op >> 3) & 0b111];
+        rt.* = self.page0[mrs.hl];
     }
 
     fn ldir(self: *Z80) void {
@@ -202,6 +211,18 @@ test "Test LD r,r" {
     try std.testing.expectEqual(0x89, z.main_register_set.e.*);
     try std.testing.expectEqual(0x89, z.main_register_set.h.*);
     try std.testing.expectEqual(0x89, z.main_register_set.l.*);
+}
+
+test "Test LD r,(hl)" {
+    var z = try Z80.init(std.heap.page_allocator);
+    const pgm1 = [_]u8{ 0x4E, 0x76 };
+    try z.load(0x1000, &pgm1);
+
+    z.page0[0x75A1] = 0x58;
+    z.main_register_set.hl = 0x75A1;
+
+    try z.call(0x1000);
+    try std.testing.expectEqual(0x58, z.main_register_set.c.*);
 }
 
 test "Test LDIR" {
