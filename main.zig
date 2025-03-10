@@ -80,12 +80,13 @@ pub const Z80 = struct {
                         else => return error.UnknownOpcode,
                     }
                 },
+                0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E => self.ldu8(),
                 else => return error.UnknownOpcode,
             }
 
             switch (self.page0[self.pc]) {
                 0x01, 0x11, 0x21, 0x31 => self.pc += 3,
-                0xED => self.pc += 2,
+                0xED, 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E => self.pc += 2,
                 else => return error.UnknownOpcode,
             }
         }
@@ -93,6 +94,13 @@ pub const Z80 = struct {
 
     fn ld(self: *Z80, r: *u16) void {
         r.* = word(self.page0[self.pc + 2], self.page0[self.pc + 1]);
+    }
+
+    fn ldu8(self: *Z80) void {
+        const rs = self.main_register_set;
+        const arr: [8]*u8 = .{ rs.b, rs.c, rs.d, rs.e, rs.h, rs.l, undefined, rs.a };
+        const r = arr[self.page0[self.pc] >> 3];
+        r.* = self.page0[self.pc + 1];
     }
 
     fn ldir(self: *Z80) void {
@@ -150,6 +158,21 @@ test "Test LD rr,nn" {
     try std.testing.expectEqual(0x123, z.main_register_set.hl);
     try std.testing.expectEqual(0x456, z.main_register_set.de);
     try std.testing.expectEqual(4, z.main_register_set.bc);
+}
+
+test "Test LD r,n" {
+    var z = try Z80.init(std.heap.page_allocator);
+    const pgm1 = [_]u8{ 0x3E, 0x01, 0x06, 0x02, 0x0E, 0x03, 0x16, 0x04, 0x1E, 0x05, 0x26, 0x06, 0x2E, 0x07, 0x76 };
+    try z.load(0x1000, &pgm1);
+    try z.call(0x1000);
+
+    try std.testing.expectEqual(0x1, z.main_register_set.a.*);
+    try std.testing.expectEqual(0x2, z.main_register_set.b.*);
+    try std.testing.expectEqual(0x3, z.main_register_set.c.*);
+    try std.testing.expectEqual(0x4, z.main_register_set.d.*);
+    try std.testing.expectEqual(0x5, z.main_register_set.e.*);
+    try std.testing.expectEqual(0x6, z.main_register_set.h.*);
+    try std.testing.expectEqual(0x7, z.main_register_set.l.*);
 }
 
 test "Test LDIR" {
