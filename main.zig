@@ -5,7 +5,7 @@ const Registers = struct { hl: u16 = 0, h: *u8 = undefined, l: *u8 = undefined, 
 
 const Z80Error = error{ Overflow, UnknownOpcode, Unsupported };
 
-const Z80 = struct {
+pub const Z80 = struct {
     page0: []u8,
     main_register_set: *Registers,
     alt_register_set: *Registers,
@@ -14,7 +14,7 @@ const Z80 = struct {
     ix: u16 = 0,
     iy: u16 = 0,
 
-    fn init(allocator: std.mem.Allocator) !Z80 {
+    pub fn init(allocator: std.mem.Allocator) !Z80 {
         return .{ .page0 = try allocator.alloc(u8, 65536), .main_register_set = try initRegisters(allocator), .alt_register_set = try initRegisters(allocator) };
     }
 
@@ -39,7 +39,7 @@ const Z80 = struct {
         return mrs;
     }
 
-    fn load(self: *Z80, addr: u16, buf: []const u8) !void {
+    pub fn load(self: *Z80, addr: u16, buf: []const u8) !void {
         if (addr + buf.len > self.page0.len) {
             return Z80Error.Overflow;
         }
@@ -53,7 +53,7 @@ const Z80 = struct {
         return @as(u16, h) << 8 | @as(u16, l);
     }
 
-    fn call(self: *Z80, addr: u16) !void {
+    pub fn call(self: *Z80, addr: u16) !void {
         self.pc = addr;
 
         while (self.page0[self.pc] != 0x76) {
@@ -76,7 +76,7 @@ const Z80 = struct {
         r.* = word(self.page0[self.pc + 2], self.page0[self.pc + 1]);
     }
 
-    fn printRegisters(self: *Z80) void {
+    pub fn printRegisters(self: *Z80) void {
         print("Main register set\n", .{});
         print("-----------------\n", .{});
         print("BC=0x{x}\n", .{self.main_register_set.bc});
@@ -103,4 +103,15 @@ pub fn main() !void {
     z80.printRegisters();
 
     print("{x}", .{z80.main_register_set.b.*});
+}
+
+test "Test LD rr,nn" {
+    var z = try Z80.init(std.heap.page_allocator);
+    const pgm1 = [_]u8{ 0x21, 0x23, 0x01, 0x11, 0x56, 0x04, 0x01, 0x04, 0x00, 0x76 };
+    try z.load(0x1000, &pgm1);
+    try z.call(0x1000);
+
+    try std.testing.expectEqual(0x123, z.main_register_set.hl);
+    try std.testing.expectEqual(0x456, z.main_register_set.de);
+    try std.testing.expectEqual(4, z.main_register_set.bc);
 }
